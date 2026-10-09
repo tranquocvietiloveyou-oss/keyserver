@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Admin Key</title>
+<style>
+body{font-family:sans-serif;background:#0b0b18;color:#fff;padding:12px;margin:0}
+input,select,button{padding:10px;border-radius:8px;border:none;margin:4px 0;width:100%;font-size:14px;box-sizing:border-box}
+button{background:#00cfff;color:#fff;font-weight:bold}
+table{width:100%;border-collapse:collapse;margin-top:15px;font-size:11px}
+th,td{border:1px solid #333;padding:5px;text-align:left;word-break:break-all}
+th{background:#1a1a2e}
+.box{background:#141422;padding:12px;border-radius:12px;margin-bottom:12px}
+.key{color:#00cfff;font-family:monospace;font-size:10px}
+#msg{color:#ff8080;font-size:12px;min-height:18px}
+label{font-size:12px;color:#aaa;display:block;margin-top:8px}
+h2{font-size:16px;margin:0 0 10px 0}
+</style>
+</head>
+<body>
+
+<div id="loginBox" class="box">
+<h2>🔐 Đăng nhập Admin</h2>
+<input id="u" value="admin" placeholder="Tài khoản">
+<input id="p" type="password" value="admin123" placeholder="Mật khẩu">
+<button onclick="login()">Đăng nhập</button>
+<p id="msg"></p>
+</div>
+
+<div id="panel" style="display:none">
+<div class="box">
+<h2>➕ Tạo Key</h2>
+<label>Loại key:</label>
+<select id="keyType" onchange="onTypeChange()">
+<option value="1">Key 1 máy</option>
+<option value="multi">Key nhiều máy</option>
+<option value="0">Key không giới hạn máy</option>
+</select>
+<label>Thời hạn:</label>
+<select id="duration">
+<option value="1h">1 giờ</option>
+<option value="1d">1 ngày</option>
+<option value="1w">1 tuần</option>
+<option value="1m">1 tháng</option>
+<option value="1y">1 năm</option>
+<option value="forever">Vĩnh viễn</option>
+</select>
+<div id="maxUsesBox" style="display:none">
+<label>Số máy tối đa:</label>
+<input id="maxUses" type="number" value="5" min="2" max="10000">
+</div>
+<label>Số lượng key:</label>
+<input id="quantity" type="number" value="1" min="1" max="1000">
+<button onclick="createKey()">Tạo Key</button>
+<button onclick="copyAll()" style="background:#009dff">📋 Copy tất cả</button>
+<button onclick="loadKeys()" style="background:#666">🔄 Tải lại</button>
+</div>
+
+<div class="box">
+<h2>📋 Danh sách Key</h2>
+<p style="font-size:11px;color:#888">Tổng: <span id="total">0</span> key</p>
+<table id="tbl">
+<tr><th>Key</th><th>Loại</th><th>Dùng</th><th>Hết hạn</th><th>Xoá</th></tr>
+</table>
+</div>
+</div>
+
+<script>
+var token="";
+function onTypeChange(){
+  var t=document.getElementById("keyType").value;
+  document.getElementById("maxUsesBox").style.display=(t==="multi")?"block":"none";
+}
+function login(){
+  document.getElementById("msg").innerText="⏳ Đang kết nối...";
+  fetch("/api/login",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({username:document.getElementById("u").value,password:document.getElementById("p").value})})
+  .then(function(r){return r.json()})
+  .then(function(j){
+    if(j.token){
+      token=j.token;
+      document.getElementById("loginBox").style.display="none";
+      document.getElementById("panel").style.display="block";
+      loadKeys();
+    }else{
+      document.getElementById("msg").innerText="❌ "+(j.error||"Sai");
+    }
+  })
+  .catch(function(e){document.getElementById("msg").innerText="❌ "+e.message});
+}
+function createKey(){
+  var t=document.getElementById("keyType").value;
+  var maxUses=1;
+  if(t==="multi") maxUses=parseInt(document.getElementById("maxUses").value)||5;
+  if(t==="0") maxUses=0;
+  document.getElementById("msg").innerText="⏳ Đang tạo...";
+  fetch("/api/create-key",{method:"POST",headers:{"Content-Type":"application/json","Authorization":"Bearer "+token},body:JSON.stringify({duration:document.getElementById("duration").value,quantity:parseInt(document.getElementById("quantity").value)||1,maxUses:maxUses})})
+  .then(function(r){return r.json()})
+  .then(function(j){
+    document.getElementById("msg").innerText="";
+    if(j.keys){
+      alert("✅ Tạo "+j.keys.length+" key:\n\n"+j.keys.join("\n"));
+      loadKeys();
+    }else{
+      alert("❌ "+JSON.stringify(j));
+    }
+  });
+}
+function loadKeys(){
+  fetch("/api/keys",{headers:{"Authorization":"Bearer "+token}})
+  .then(function(r){return r.json()})
+  .then(function(j){
+    var t=document.getElementById("tbl");
+    t.innerHTML="<tr><th>Key</th><th>Loại</th><th>Dùng</th><th>Hết hạn</th><th>Xoá</th></tr>";
+    document.getElementById("total").innerText=j.keys.length;
+    j.keys.forEach(function(k){
+      var type="1 máy";
+      if(k.maxUses===0) type="∞ máy";
+      else if(k.maxUses>1) type=k.maxUses+" máy";
+      var used=(k.usedBy?k.usedBy.length:0);
+      var usedStr=used+(k.maxUses>0?"/"+k.maxUses:"");
+      var exp=k.expiresAt?new Date(k.expiresAt).toLocaleString("vi-VN"):"Vĩnh viễn";
+      var tr=document.createElement("tr");
+      tr.innerHTML="<td class='key'>"+k.key+"</td><td>"+type+"</td><td>"+usedStr+"</td><td>"+exp+"</td><td><button onclick=\"delKey('"+k.key+"')\">🗑️</button></td>";
+      t.appendChild(tr);
+    });
+  });
+}
+function delKey(k){
+  if(!confirm("Xoá "+k+"?"))return;
+  fetch("/api/delete-key/"+k,{method:"DELETE",headers:{"Authorization":"Bearer "+token}}).then(function(){loadKeys()});
+}
+function copyAll(){
+  fetch("/api/keys",{headers:{"Authorization":"Bearer "+token}})
+  .then(function(r){return r.json()})
+  .then(function(j){
+    navigator.clipboard.writeText(j.keys.map(function(k){return k.key}).join("\n"));
+    alert("Đã copy "+j.keys.length+" key");
+  });
+}
+</script>
+</body>
+</html>
